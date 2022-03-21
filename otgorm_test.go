@@ -2,13 +2,16 @@ package otgorm_test
 
 import (
 	"context"
+	"log"
 	"testing"
 
-	"github.com/jinzhu/gorm"
-	_ "github.com/jinzhu/gorm/dialects/sqlite"
+	otgorm "github.com/gunasekar/opentracing-gorm"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/mocktracer"
-	otgorm "github.com/smacker/opentracing-gorm"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+
+	_ "gorm.io/driver/sqlite"
 )
 
 var tracer *mocktracer.MockTracer
@@ -26,9 +29,9 @@ type Product struct {
 }
 
 func initDB() *gorm.DB {
-	db, err := gorm.Open("sqlite3", ":memory:")
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
-		panic(err)
+		log.Panic(err)
 	}
 	db.AutoMigrate(&Product{})
 	db.Create(&Product{Code: "L1212"})
@@ -54,18 +57,22 @@ func TestPool(t *testing.T) {
 	}
 
 	sqlSpan := spans[0]
-	if sqlSpan.OperationName != "sql" {
+	if sqlSpan.OperationName != "sqlite.query" {
 		t.Errorf("first span operation should be sql but it's '%s'", sqlSpan.OperationName)
 	}
 
 	expectedTags := map[string]interface{}{
-		"error":        false,
-		"db.table":     "products",
-		"db.method":    "SELECT",
-		"db.type":      "sql",
-		"db.statement": `SELECT * FROM "products"  WHERE "products"."deleted_at" IS NULL AND (("products"."id" = 1)) ORDER BY "products"."id" ASC LIMIT 1`,
-		"db.err":       false,
-		"db.count":     int64(1),
+		"error":         false,
+		"component":     "gorm",
+		"span.type":     "db",
+		"service.name":  "sqlite",
+		"resource.name": "SELECT * FROM `products` WHERE `products`.`id` = ? AND `products`.`deleted_at` IS NULL ORDER BY `products`.`id` LIMIT 1",
+		"db.table":      "products",
+		"db.method":     "SELECT",
+		"db.type":       "sqlite",
+		"db.statement":  "SELECT * FROM `products` WHERE `products`.`id` = ? AND `products`.`deleted_at` IS NULL ORDER BY `products`.`id` LIMIT 1",
+		"db.err":        false,
+		"db.count":      int64(1),
 	}
 
 	sqlTags := sqlSpan.Tags()
